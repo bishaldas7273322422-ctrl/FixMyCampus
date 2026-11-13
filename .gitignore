@@ -1,0 +1,6 @@
+node_modules/
+.env
+uploads/
+db.json
+db_before_cleanup.json
+public/app_backup.js

@@ -1,0 +1,296 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixMyCampus | Login</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #080e20, #171b3b, #102d43);
+            color: white;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 440px;
+            padding: 35px;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            background: rgba(255,255,255,0.07);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .brand {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .brand h1 {
+            font-size: 29px;
+            margin-bottom: 8px;
+        }
+
+        .brand span {
+            color: #67d9ff;
+        }
+
+        .brand p {
+            color: #aab5d0;
+            font-size: 14px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 25px;
+        }
+
+        .tabs button {
+            flex: 1;
+            padding: 12px 5px;
+            border: 1px solid #39435f;
+            border-radius: 9px;
+            background: transparent;
+            color: white;
+            cursor: pointer;
+        }
+
+        .tabs button.active {
+            background: #6556dc;
+            border-color: #6556dc;
+        }
+
+        .form-group {
+            margin-bottom: 17px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #dce4f8;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid #39435f;
+            border-radius: 9px;
+            outline: none;
+            background: #111a32;
+            color: white;
+        }
+
+        input:focus {
+            border-color: #67d9ff;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 14px;
+            margin-top: 8px;
+            border: none;
+            border-radius: 9px;
+            background: linear-gradient(90deg, #6556dc, #278ed1);
+            color: white;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #message {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .back-link {
+            display: block;
+            margin-top: 22px;
+            text-align: center;
+            color: #67d9ff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        @media(max-width: 480px) {
+            .container {
+                padding: 25px 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="brand">
+            <h1>FixMy<span>Campus</span></h1>
+            <p>Campus Complaint Management Portal</p>
+        </div>
+
+        <div class="tabs">
+            <button id="loginTab" class="active" type="button"
+                onclick="showLogin()">Login</button>
+
+            <button id="registerTab" type="button"
+                onclick="showRegister()">Register</button>
+        </div>
+
+        <form id="authForm">
+
+            <div class="form-group" id="nameGroup" hidden>
+                <label for="name">Full Name</label>
+                <input type="text" id="name"
+                    placeholder="Enter your full name"
+                    autocomplete="name">
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email"
+                    placeholder="Enter your email"
+                    autocomplete="email" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password"
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    minlength="8" required>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitButton">
+                Login
+            </button>
+
+        </form>
+
+        <p id="message" role="status"></p>
+
+        <a href="index.html" class="back-link">
+            ← Back to Homepage
+        </a>
+
+    </div>
+
+    <script>
+        const API_URL = "http://127.0.0.1:5000/api";
+
+        const authForm = document.getElementById("authForm");
+        const nameGroup = document.getElementById("nameGroup");
+        const nameInput = document.getElementById("name");
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const submitButton = document.getElementById("submitButton");
+        const message = document.getElementById("message");
+
+        let currentMode = "login";
+
+        function showLogin() {
+            currentMode = "login";
+            nameGroup.hidden = true;
+            nameInput.required = false;
+            passwordInput.autocomplete = "current-password";
+
+            submitButton.textContent = "Login";
+
+            document.getElementById("loginTab").classList.add("active");
+            document.getElementById("registerTab").classList.remove("active");
+
+            message.textContent = "";
+        }
+
+        function showRegister() {
+            currentMode = "register";
+            nameGroup.hidden = false;
+            nameInput.required = true;
+            passwordInput.autocomplete = "new-password";
+
+            submitButton.textContent = "Create Account";
+
+            document.getElementById("registerTab").classList.add("active");
+            document.getElementById("loginTab").classList.remove("active");
+
+            message.textContent = "";
+        }
+
+        authForm.addEventListener("submit", async function(event) {
+            event.preventDefault();
+
+            submitButton.disabled = true;
+            submitButton.textContent = "Please wait...";
+            message.textContent = "";
+
+            const endpoint = currentMode === "register"
+                ? "/auth/register"
+                : "/auth/login";
+
+            const body = {
+                email: emailInput.value.trim(),
+                password: passwordInput.value
+            };
+
+            if (currentMode === "register") {
+                body.name = nameInput.value.trim();
+            }
+
+            try {
+                const response = await fetch(API_URL + endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || "Authentication failed.");
+                }
+
+                localStorage.setItem("fmcToken", result.token);
+                localStorage.setItem("fmcUser", JSON.stringify(result.user));
+
+                message.style.color = "#55e6a5";
+                message.textContent = result.message;
+
+                window.location.href = "index.html";
+
+            } catch (error) {
+                message.style.color = "#ff7885";
+                message.textContent = error.message;
+
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent =
+                    currentMode === "register" ? "Create Account" : "Login";
+            }
+        });
+    </script>
+
+</body>
+</html>
