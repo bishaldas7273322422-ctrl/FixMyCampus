@@ -6,6 +6,9 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const multer = require("multer");
+const { Readable } = require("stream");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
 
 const connectDB = require("./config/database");
 const User = require("./models/User");
@@ -21,17 +24,29 @@ const UPLOAD_DIR = path.join(__dirname, "uploads");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 // Check required environment variables
-if (!process.env.JWT_SECRET) {
-    console.error("ERROR: JWT_SECRET is missing in .env");
+if (!process.env.JWT_SECRET || !process.env.MONGO_URI) {
+    console.error("ERROR: JWT_SECRET or MONGO_URI is missing.");
     process.exit(1);
 }
 
-if (!process.env.MONGO_URI) {
-    console.error("ERROR: MONGO_URI is missing in .env");
+if (
+    !process.env.CLOUDINARY_CLOUD_NAME ||
+    !process.env.CLOUDINARY_API_KEY ||
+    !process.env.CLOUDINARY_API_SECRET
+) {
+    console.error("ERROR: Cloudinary credentials are missing.");
     process.exit(1);
 }
 
-// Create uploads folder if missing
+// Cloudinary configuration
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+});
+
+// Create local folder for legacy photos
 if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
@@ -48,24 +63,25 @@ function generateTicketID() {
     return `FMC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 }
 
-// Multer photo upload configuration
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, UPLOAD_DIR);
-    },
-
-    filename: (req, file, cb) => {
-        const uniqueName =
-            `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`;
-
-        cb(null, uniqueName);
+// Cloudinary photo storage
+const storage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder: "fixmycampus/complaints",
+        resource_type: "image",
+        type: "authenticated",
+        allowed_formats: ["jpg", "jpeg", "png", "webp"],
+        public_id: (req, file) =>
+            `${Date.now()}-${crypto.randomUUID()}`
     }
 });
 
+// Multer upload configuration
 const upload = multer({
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-
+    limits: {
+        fileSize: 5 * 1024 * 1024
+    },
     fileFilter: (req, file, cb) => {
         const allowedTypes = [
             "image/jpeg",
@@ -115,6 +131,13 @@ app.post(
             } = req.body;
 
             if (!category || !title || !description || !location || !priority) {
+                if (req.file) {
+                    await cloudinary.uploader.destroy(req.file.filename, {
+                        resource_type: "image",
+                        type: "authenticated"
+                    });
+                }
+
                 return res.status(400).json({
                     success: false,
                     message: "Please fill in all required fields."
@@ -127,6 +150,13 @@ app.post(
             });
 
             if (!student) {
+                if (req.file) {
+                    await cloudinary.uploader.destroy(req.file.filename, {
+                        resource_type: "image",
+                        type: "authenticated"
+                    });
+                }
+
                 return res.status(401).json({
                     success: false,
                     message: "Student account not found."
@@ -144,7 +174,10 @@ app.post(
                 description,
                 location,
                 priority,
-                photo: req.file ? `/uploads/${req.file.filename}` : null,
+
+                // Store Cloudinary public ID, not a local file path
+                photo: req.file ? req.file.filename : null,
+
                 status: "Pending",
                 createdAt: new Date(),
                 updatedAt: new Date()
@@ -159,9 +192,16 @@ app.post(
         } catch (error) {
             console.error("Complaint submission error:", error);
 
-            // Remove uploaded file if database save fails
-            if (req.file && fs.existsSync(req.file.path)) {
-                fs.unlinkSync(req.file.path);
+            // Remove Cloudinary photo if database save fails
+            if (req.file && req.file.filename) {
+                try {
+                    await cloudinary.uploader.destroy(req.file.filename, {
+                        resource_type: "image",
+                        type: "authenticated"
+                    });
+                } catch (deleteError) {
+                    console.error("Cloudinary cleanup error:", deleteError.message);
+                }
             }
 
             res.status(500).json({
@@ -173,7 +213,6 @@ app.post(
 );
 
 // PUBLIC EXISTING COMPLAINTS
-// No login required. Only safe information is returned.
 app.get("/api/issues/public", async (req, res) => {
     try {
         const { search, status, category, priority } = req.query;
@@ -321,18 +360,51 @@ app.get("/api/issues/:id/photo", verifyToken, async (req, res) => {
             });
         }
 
-        const filename = path.basename(issue.photo);
-        const photoPath = path.join(UPLOAD_DIR, filename);
+        // Support old local photo paths
+        if (issue.photo.startsWith("/uploads/")) {
+            const filename = path.basename(issue.photo);
+            const photoPath = path.join(UPLOAD_DIR, filename);
 
-        if (!fs.existsSync(photoPath)) {
+            if (!fs.existsSync(photoPath)) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Old photo file is unavailable."
+                });
+            }
+
+            res.setHeader("Cache-Control", "private, no-store");
+            return res.sendFile(photoPath);
+        }
+
+        // Generate a signed authenticated Cloudinary URL
+        const photoUrl = cloudinary.url(issue.photo, {
+            secure: true,
+            resource_type: "image",
+            type: "authenticated",
+            sign_url: true
+        });
+
+        // Fetch photo on the server, so the client does not receive
+        // the Cloudinary URL directly.
+        const response = await fetch(photoUrl);
+
+        if (!response.ok) {
+            console.error("Cloudinary photo response:", response.status);
+
             return res.status(404).json({
                 success: false,
-                message: "Photo file is unavailable."
+                message: "Cloudinary photo is unavailable."
             });
         }
 
+        const contentType = response.headers.get("content-type") || "image/jpeg";
+        const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Content-Length", imageBuffer.length);
         res.setHeader("Cache-Control", "private, no-store");
-        res.sendFile(photoPath);
+
+        res.send(imageBuffer);
 
     } catch (error) {
         console.error("Photo access error:", error);
@@ -345,7 +417,6 @@ app.get("/api/issues/:id/photo", verifyToken, async (req, res) => {
 });
 
 // Public Ticket Tracking
-// Only safe complaint information is returned.
 app.get("/api/issues/ticket/:ticketId", async (req, res) => {
     try {
         const issue = await Issue.findOne({
